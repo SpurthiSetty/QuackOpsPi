@@ -1,0 +1,6 @@
+{
+  "simulation_mode": false,
+  "mavsdk_connection_string": "serial:///dev/ttyAMA0:921600",
+  "use_picamera2": true,
+  "backend_ws_url": "wss://your-server.com/drone"
+}

@@ -1,0 +1,13 @@
+{
+  "simulation_mode": true,
+  "mavsdk_connection_string": "udp://:14540",
+  "use_picamera2": false,
+  "cruise_altitude_m": 10.0,
+  "takeoff_altitude_m": 5.0,
+  "search_timeout_s": 5.0,
+  "battery_warning_percent": 50.0,
+  "battery_critical_percent": 25.0,
+  "pickup_timeout_s": 30.0,
+  "preflight_min_gps_fix": 2,
+  "preflight_min_satellites": 4
+}

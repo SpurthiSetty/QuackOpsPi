@@ -1,0 +1,5 @@
+{
+  "simulation_mode": true,
+  "mavsdk_connection_string": "udp://:14540",
+  "use_picamera2": false
+}

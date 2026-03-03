@@ -1,0 +1,7 @@
+mavsdk>=2.0
+opencv-python>=4.9
+numpy
+aiohttp
+picamera2; platform_machine == "aarch64"
+pytest
+pytest-asyncio

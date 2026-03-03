@@ -1,0 +1,34 @@
+{
+  "detections": [
+    {
+      "marker_id": 42,
+      "center": [320.0, 240.0],
+      "distance_m": 5.0,
+      "confidence": 0.95
+    },
+    {
+      "marker_id": 42,
+      "center": [318.5, 241.2],
+      "distance_m": 4.2,
+      "confidence": 0.92
+    },
+    {
+      "marker_id": 42,
+      "center": [320.1, 239.8],
+      "distance_m": 3.1,
+      "confidence": 0.97
+    },
+    {
+      "marker_id": 42,
+      "center": [319.7, 240.3],
+      "distance_m": 2.0,
+      "confidence": 0.98
+    },
+    {
+      "marker_id": 42,
+      "center": [320.0, 240.0],
+      "distance_m": 0.4,
+      "confidence": 0.99
+    }
+  ]
+}
