@@ -1,9 +1,9 @@
 import pytest
 import numpy
 
-from src.config.qps_config import qpsConfig
-from src.models.qps_marker_detection import qpsMarkerDetection
-from src.vision.qps_marker_detector import qpsMarkerDetector
+from quackops_pi.config.qps_config import qpsConfig
+from quackops_pi.models.qps_marker_detection import qpsMarkerDetection
+from quackops_pi.vision.qps_marker_detector import qpsMarkerDetector
 
 
 @pytest.fixture

@@ -1,12 +1,12 @@
 import pytest
 import numpy
 
-from src.config.qps_config import qpsConfig
-from src.enums.qps_landing_result import qpsLandingResult
-from src.landing.qps_landing_controller import qpsLandingController
-from tests.mocks.qps_mock_flight_manager import qpsMockFlightManager
-from tests.mocks.qps_mock_camera_manager import qpsMockCameraManager
-from tests.mocks.qps_mock_marker_detector import qpsMockMarkerDetector
+from quackops_pi.config.qps_config import qpsConfig
+from quackops_pi.models.qps_landing_result import qpsLandingOutcome, qpsLandingResult
+from quackops_pi.mission.qps_landing_controller import qpsLandingController
+from quackops_pi.flight.qps_mock_flight_manager import qpsMockFlightManager
+from quackops_pi.vision.qps_mock_camera_manager import qpsMockCameraManager
+from quackops_pi.vision.qps_mock_marker_detector import qpsMockMarkerDetector
 
 
 @pytest.fixture

@@ -1,17 +1,17 @@
 import pytest
 import pytest_asyncio
 
-from src.config.qps_config import qpsConfig
-from src.enums.qps_mission_state import qpsMissionState
-from src.enums.qps_command_type import qpsCommandType
-from src.models.qps_mission_command import qpsMissionCommand
-from src.mission.qps_mission_controller import qpsMissionController
-from src.landing.qps_landing_controller import qpsLandingController
-from src.telemetry.qps_telemetry_monitor import qpsTelemetryMonitor
-from tests.mocks.qps_mock_flight_manager import qpsMockFlightManager
-from tests.mocks.qps_mock_camera_manager import qpsMockCameraManager
-from tests.mocks.qps_mock_marker_detector import qpsMockMarkerDetector
-from tests.mocks.qps_mock_backend_client import qpsMockBackendClient
+from quackops_pi.config.qps_config import qpsConfig
+from quackops_pi.models.qps_mission_state import qpsMissionState
+from quackops_pi.models.qps_command_type import qpsCommandType
+from quackops_pi.models.qps_mission_command import qpsMissionCommand
+from quackops_pi.mission.qps_mission_controller import qpsMissionControllerLandingMixin
+from quackops_pi.mission.qps_landing_controller import qpsLandingController
+from quackops_pi.telemetry.qps_telemetry_monitor import qpsTelemetryMonitor
+from quackops_pi.flight.qps_mock_flight_manager import qpsMockFlightManager
+from quackops_pi.vision.qps_mock_camera_manager import qpsMockCameraManager
+from quackops_pi.vision.qps_mock_marker_detector import qpsMockMarkerDetector
+from quackops_pi.comms.qps_mock_backend_client import qpsMockBackendClient
 
 
 @pytest.fixture

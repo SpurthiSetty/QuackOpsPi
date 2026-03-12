@@ -1,11 +1,11 @@
 import pytest
 import pytest_asyncio
 
-from src.config.qps_config import qpsConfig
-from src.enums.qps_status_type import qpsStatusType
-from src.models.qps_status_message import qpsStatusMessage
-from src.models.qps_gps_position import qpsGPSPosition
-from tests.mocks.qps_mock_backend_client import qpsMockBackendClient
+from quackops_pi.config.qps_config import qpsConfig
+from quackops_pi.models.qps_status_type import qpsStatusType
+from quackops_pi.models.qps_status_message import qpsStatusMessage
+from quackops_pi.models.qps_gps_position import qpsGPSPosition
+from quackops_pi.comms.qps_mock_backend_client import qpsMockBackendClient
 
 
 @pytest.fixture
