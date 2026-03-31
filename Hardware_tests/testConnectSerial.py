@@ -13,7 +13,7 @@ async def run():
             break
 
     async for battery in drone.telemetry.battery():
-        print(f"Battery: {battery.remaining_percent * 100:.1f}%")
+        print(f"Battery: {battery.remaining_percent:.1f}%")
         break
 
     async for gps in drone.telemetry.gps_info():
