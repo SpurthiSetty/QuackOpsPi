@@ -1,8 +1,8 @@
 import pytest
 import pytest_asyncio
 
-from src.config.qps_config import qpsConfig
-from tests.mocks.qps_mock_flight_manager import qpsMockFlightManager
+from quackops_pi.config.qps_config import qpsConfig
+from quackops_pi.flight.qps_mock_flight_manager import qpsMockFlightManager
 
 
 @pytest.fixture

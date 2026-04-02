@@ -1,7 +1,7 @@
 import pytest
 
-from src.config.qps_config import qpsConfig
-from src.telemetry.qps_telemetry_monitor import qpsTelemetryMonitor
+from quackops_pi.config.qps_config import qpsConfig
+from quackops_pi.telemetry.qps_telemetry_monitor import qpsTelemetryMonitor
 
 
 @pytest.fixture
