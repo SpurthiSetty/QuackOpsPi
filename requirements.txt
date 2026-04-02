@@ -5,3 +5,4 @@ aiohttp
 picamera2; platform_machine == "aarch64"
 pytest
 pytest-asyncio
+pymavlink
