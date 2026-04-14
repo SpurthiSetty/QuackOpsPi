@@ -9,23 +9,39 @@ Usage:
 NOT a pytest test — run with python, not pytest.
 """
 
+import cv2
 from picamera2 import Picamera2
 
-picam2 = Picamera2()
-picam2.preview_configuration.main.size = (640, 480)
-picam2.preview_configuration.main.format = "RGB888"
-picam2.configure("preview")
+# --- List detected cameras ---
+camera_info = Picamera2.global_camera_info()
+print(f"Detected {len(camera_info)} camera(s):")
+for i, info in enumerate(camera_info):
+    print(f"  [{i}] {info}")
 
-picam2.start()
-print("Camera started, capturing frame...")
+if len(camera_info) < 2:
+    print("\nWARNING: Expected 2 cameras but only found "
+          f"{len(camera_info)}. Check /boot/firmware/config.txt "
+          "and run: libcamera-hello --list-cameras")
 
-frame = picam2.capture_array()
-print(f"Frame captured: {frame.shape}")
+# --- Capture from each camera ---
+for i, info in enumerate(camera_info):
+    model = info.get("Model", f"camera{i}")
+    filename = f"test_picamera_{i}_{model}.jpg"
 
-# Save to file instead of displaying (no display over SSH)
-import cv2
-cv2.imwrite("test_picamera.jpg", frame)
-print("Saved to test_picamera.jpg")
+    print(f"\nCapturing from camera {i} ({model})...")
 
-picam2.close()
-print("SUCCESS — picamera2 works!")
+    cam = Picamera2(i)
+    cam.preview_configuration.main.size = (640, 480)
+    cam.preview_configuration.main.format = "RGB888"
+    cam.configure("preview")
+    cam.start()
+
+    frame = cam.capture_array()
+    print(f"  Frame captured: {frame.shape}")
+
+    cv2.imwrite(filename, frame)
+    print(f"  Saved to {filename}")
+
+    cam.close()
+
+print("\nSUCCESS — all cameras tested!")
