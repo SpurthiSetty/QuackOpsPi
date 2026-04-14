@@ -1,101 +1,128 @@
+"""
+qps_marker_detector.py
+
+Production ArUco marker detector using OpenCV's aruco module.
+
+detect() offloads the synchronous cv2 work to a thread via asyncio.to_thread()
+so the event loop is never blocked.  estimate_pose() is a no-op stub for the
+demo — only "was marker seen" matters for the SITL hover-search flow.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from typing import List
+
 import cv2
-import numpy
+import numpy as np
 
 from quackops_pi.config.qps_config import qpsConfig
 from quackops_pi.vision.qps_marker_detector_interface import qpsMarkerDetectorInterface
 from quackops_pi.models.qps_marker_detection import qpsMarkerDetection
 
+logger = logging.getLogger("qps.marker_detector")
+
 
 class qpsMarkerDetector(qpsMarkerDetectorInterface):
-    """Production ArUco marker detector using OpenCV's aruco module.
+    """Detects ArUco markers in BGR frames using cv2.aruco.detectMarkers.
 
-    Detects ArUco markers in camera frames, estimates their 3-D pose
-    relative to the camera, and computes detection confidence scores.
+    Only detect() is fully implemented.  estimate_pose() returns the detection
+    unchanged — pose estimation is not needed for the hover-search demo because
+    qpsHoverSearchController uses the drone's current GPS position rather than
+    projecting the marker position from a tvec.
     """
 
     def __init__(self, config: qpsConfig) -> None:
-        """Initialise the marker detector with the configured ArUco dictionary.
+        """Initialise the detector with the configured ArUco dictionary.
 
         Args:
-            config: Application configuration containing the ArUco dictionary
-                name, marker size, camera matrix, and distortion coefficients.
+            config: Application configuration.  config.aruco_dictionary must be
+                    a valid cv2.aruco constant name (e.g. "DICT_4X4_50").
         """
-        self.config: qpsConfig = config
-        self.dictionary: cv2.aruco.Dictionary = cv2.aruco.getPredefinedDictionary(
-            getattr(cv2.aruco, config.aruco_dictionary)
+        self._config = config
+        dict_id = getattr(cv2.aruco, config.aruco_dictionary)
+        self._dictionary: cv2.aruco.Dictionary = (
+            cv2.aruco.getPredefinedDictionary(dict_id)
         )
-        self.detector_params: cv2.aruco.DetectorParameters = (
+        self._detector_params: cv2.aruco.DetectorParameters = (
             cv2.aruco.DetectorParameters()
         )
+        # OpenCV 4.7+ uses ArucoDetector instead of the standalone detectMarkers()
+        self._detector: cv2.aruco.ArucoDetector = cv2.aruco.ArucoDetector(
+            self._dictionary, self._detector_params
+        )
 
-    def detect(self, frame: numpy.ndarray) -> list[qpsMarkerDetection]:
-        """Detect all ArUco markers in a camera frame.
+    # ── qpsMarkerDetectorInterface ────────────────────────────────────
 
-        Args:
-            frame: BGR image as a numpy array.
+    async def detect(self, frame: np.ndarray) -> List[qpsMarkerDetection]:
+        """Detect all ArUco markers in a BGR frame.
 
-        Returns:
-            list[qpsMarkerDetection]: All detected markers with corner
-                coordinates and centre positions.
-        """
-        # TODO: Convert frame to greyscale. Call cv2.aruco.detectMarkers()
-        #  with self.dictionary and self.detector_params. Build
-        #  qpsMarkerDetection objects for each detected marker.
-        pass
-
-    def estimate_pose(self, detection: qpsMarkerDetection) -> qpsMarkerDetection:
-        """Estimate the 3-D pose of a detected marker.
-
-        Uses cv2.solvePnP with the camera calibration data from config.
+        Offloads cv2 work to a thread pool so the event loop is not blocked.
 
         Args:
-            detection: A detection whose pose fields will be populated.
+            frame: BGR image as a numpy ndarray (e.g. from qpsCVCameraManager).
 
         Returns:
-            qpsMarkerDetection: Updated detection with rotation_vec,
-                translation_vec, and distance_m.
+            List of qpsMarkerDetection, one per detected marker.  Empty if none.
         """
-        # TODO: Build 3-D object points for the marker. Call cv2.solvePnP()
-        #  with config.camera_matrix and config.distortion_coefficients.
-        #  Populate detection.rotation_vec, translation_vec, distance_m.
-        pass
+        return await asyncio.to_thread(self._detect_sync, frame)
 
-    def get_confidence(self, detection: qpsMarkerDetection) -> float:
-        """Compute a confidence score for a detection.
+    async def estimate_pose(
+        self, detection: qpsMarkerDetection
+    ) -> qpsMarkerDetection:
+        """Return the detection unchanged.
 
-        Based on marker area and shape regularity of the detected corners.
+        Full solvePnP pose estimation is not required for the SITL demo.
+        qpsHoverSearchController reports the drone's current GPS as the landing
+        position, so tvec/rvec are not needed.
 
         Args:
-            detection: The marker detection to evaluate.
+            detection: A previously detected marker.
 
         Returns:
-            float: A confidence value between 0.0 and 1.0.
+            The same detection object, unmodified.
         """
-        # TODO: Combine _calculate_area and _calculate_shape_regularity
-        #  into a composite confidence score.
-        pass
+        return detection
 
-    def _calculate_area(self, corners: numpy.ndarray) -> float:
-        """Calculate the pixel area enclosed by the marker corners.
+    # ── Synchronous detection ─────────────────────────────────────────
 
-        Args:
-            corners: 4×2 array of corner coordinates.
+    def _detect_sync(self, frame: np.ndarray) -> List[qpsMarkerDetection]:
+        """Run cv2.aruco.detectMarkers on a grayscale-converted frame.
 
-        Returns:
-            float: Area in pixels².
+        Called via asyncio.to_thread() from detect().
         """
-        # TODO: Use the shoelace formula or cv2.contourArea to compute area.
-        pass
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        corners, ids, _ = self._detector.detectMarkers(gray)
 
-    def _calculate_shape_regularity(self, corners: numpy.ndarray) -> float:
-        """Evaluate how close the detected shape is to a perfect square.
+        if ids is None:
+            return []
 
-        Args:
-            corners: 4×2 array of corner coordinates.
+        results: List[qpsMarkerDetection] = []
+        for marker_corners, marker_id in zip(corners, ids.flatten()):
+            # marker_corners shape: (1, 4, 2) — squeeze to (4, 2)
+            pts: np.ndarray = marker_corners[0]
+            center_px = (
+                float(np.mean(pts[:, 0])),
+                float(np.mean(pts[:, 1])),
+            )
+            results.append(
+                qpsMarkerDetection(
+                    marker_id=int(marker_id),
+                    corners=pts,
+                    center_px=center_px,
+                    confidence=1.0,
+                )
+            )
+            logger.debug(
+                "Detected marker ID=%d  center=(%.1f, %.1f)",
+                marker_id, center_px[0], center_px[1],
+            )
 
-        Returns:
-            float: Regularity score between 0.0 (degenerate) and 1.0
-                (perfect square).
-        """
-        # TODO: Compare side lengths and angles to an ideal square.
-        pass
+        if results:
+            logger.info(
+                "Detected %d marker(s): IDs=%s",
+                len(results), [d.marker_id for d in results],
+            )
+
+        return results

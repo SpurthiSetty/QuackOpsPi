@@ -32,7 +32,7 @@ class qpsConfig:
     orbit_radius_m: float = 15.0
     orbit_num_points: int = 8
     orbit_altitude_m: float = 10.0
-    search_timeout_s: float = 60.0
+    search_timeout_s: float = 180.0
     target_marker_id: int = 0
 
     # ── Landing / goto ────────────────────────────────────────────────
