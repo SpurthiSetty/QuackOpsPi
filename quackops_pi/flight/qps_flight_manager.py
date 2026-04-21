@@ -14,17 +14,18 @@ Connection strings:
     SITL (TCP)           : "tcp:localhost:5763"
 """
 
+
 from __future__ import annotations
 
 import asyncio
 import logging
 from typing import Any, Callable, List, Optional
-
 from pymavlink import mavutil, mavwp
 
 from quackops_pi.config.qps_config import qpsConfig
 from quackops_pi.flight.qps_flight_manager_interface import qpsFlightManagerInterface
 from quackops_pi.models.qps_gps_position import qpsGPSPosition
+
 
 logger = logging.getLogger("qps.flight_manager")
 
@@ -206,6 +207,11 @@ class qpsFlightManager(qpsFlightManagerInterface):
                 if msg.get_srcComponent() != 0:
                     self._last_heartbeat = msg
                     self._heartbeat_event.set()
+                    # ArduPilot auto-disarms after touchdown — use as landed signal.
+                    # Catches SITL cases where relative_alt stays > 1m after landing.
+                    armed = bool(msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
+                    if not armed:
+                        self._land_event.set()
 
             elif msg_type == "GLOBAL_POSITION_INT":
                 self._last_gps_msg = msg

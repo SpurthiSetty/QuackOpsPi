@@ -83,6 +83,9 @@ class qpsMissionControllerImpl:
         self._dispatch_event: asyncio.Event = asyncio.Event()
         self._pending_command: Optional[qpsMissionCommand] = None
 
+        # Set by backend when returnToSource is received
+        self._return_to_source_event: asyncio.Event = asyncio.Event()
+
         # GPS streaming task (started on EN_ROUTE, cancelled at MISSION_COMPLETE)
         self._gps_stream_task: Optional[asyncio.Task] = None
 
@@ -105,6 +108,7 @@ class qpsMissionControllerImpl:
         # ── IDLE → AWAITING_DISPATCH ───────────────────────────────
         await self._set_state(qpsMissionState.AWAITING_DISPATCH)
         self._backend.on_command(self._on_command)
+        self._backend.on_return_to_source(self._on_return_to_source)
         await self._backend.send_status("ready", {})
 
         logger.info("Waiting for startDelivery command from backend...")
@@ -259,6 +263,11 @@ class qpsMissionControllerImpl:
                 "longitude_deg": landed_gps.longitude_deg if landed_gps else self._dest_lon,
             },
         )
+
+        # ── DELIVERY_COMPLETE: wait for backend returnToSource ──────
+        logger.info("Waiting for returnToSource from backend...")
+        await self._return_to_source_event.wait()
+        logger.info("returnToSource received — initiating RTL")
 
         # ── DELIVERY_COMPLETE → EN_ROUTE_TO_BASE ───────────────────
         await self._set_state(qpsMissionState.EN_ROUTE_TO_BASE)
@@ -472,6 +481,11 @@ class qpsMissionControllerImpl:
         """Invoked synchronously by qpsBackendClient when a command arrives."""
         self._pending_command = command
         self._dispatch_event.set()
+
+    def _on_return_to_source(self, order_id: str) -> None:
+        """Invoked synchronously by qpsBackendClient when returnToSource arrives."""
+        logger.info("returnToSource acknowledged for orderId=%s", order_id)
+        self._return_to_source_event.set()
 
     def _on_battery_critical(self, pct: float) -> None:
         """Invoked synchronously by qpsTelemetryMonitor on critical battery.

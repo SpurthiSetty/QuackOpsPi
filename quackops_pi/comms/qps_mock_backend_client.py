@@ -24,6 +24,7 @@ class qpsMockBackendClient(qpsBackendClientInterface):
         self.sent_messages: list[qpsStatusMessage] = []
         self.gps_log: list[qpsGPSPosition] = []
         self.command_callback: Optional[Callable] = None
+        self.return_to_source_callback: Optional[Callable] = None
         self.pending_commands: list[qpsMissionCommand] = []
 
     # ------------------------------------------------------------------
@@ -71,6 +72,9 @@ class qpsMockBackendClient(qpsBackendClientInterface):
         """
         self.command_callback = callback
 
+    def on_return_to_source(self, callback: Callable) -> None:
+        self.return_to_source_callback = callback
+
     def is_connected(self) -> bool:
         """Check mock connection state.
 
@@ -82,6 +86,11 @@ class qpsMockBackendClient(qpsBackendClientInterface):
     # ------------------------------------------------------------------
     # Test-helper methods
     # ------------------------------------------------------------------
+
+    def inject_return_to_source(self, order_id: str) -> None:
+        """Simulate the backend sending a returnToSource message."""
+        if self.return_to_source_callback is not None:
+            self.return_to_source_callback(order_id)
 
     def inject_command(self, command: qpsMissionCommand) -> None:
         """Simulate receiving a command from the backend.

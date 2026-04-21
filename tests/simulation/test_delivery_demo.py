@@ -77,7 +77,7 @@ def _build_demo_config() -> qpsConfig:
 
     # ── Backend WebSocket ──────────────────────────────────────────
     # Node.js backend running locally; adjust if on another host
-    config.backend_ws_url = "ws://localhost:3001"
+    config.backend_ws_url = "ws://10.155.37.228:3001"
 
     # ── Flight parameters ──────────────────────────────────────────
     config.orbit_altitude_m = 10.0      # cruise + hover altitude (m)

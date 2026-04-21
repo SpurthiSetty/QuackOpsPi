@@ -45,6 +45,7 @@ class qpsBackendClient(qpsBackendClientInterface):
         self._connected: bool = False
 
         self._command_callback: Optional[Callable] = None
+        self._return_to_source_callback: Optional[Callable] = None
 
         # Outbound queue consumed by _send_loop
         self._send_queue: asyncio.Queue = asyncio.Queue()
@@ -111,13 +112,25 @@ class qpsBackendClient(qpsBackendClientInterface):
         """Serialize and enqueue a status message.
 
         Format: {"type": "status", "status_type": <str>, "data": <dict>}
+        Exception: DELIVERY_COMPLETE sends {"type": "delivered", "orderId": <order_id>}.
         If not connected, the message is buffered for delivery after reconnection.
         """
-        payload = json.dumps({
-            "type": "status",
-            "status_type": status_type,
-            "data": data,
-        })
+        if status_type == "DELIVERY_COMPLETE":
+            payload = json.dumps({
+                "type": "delivered",
+                "orderId": data["order_id"],
+            })
+        elif status_type == "MISSION_COMPLETE":
+            payload = json.dumps({
+                "type": "fulfilled",
+                "orderId": data["order_id"],
+            })
+        else:
+            payload = json.dumps({
+                "type": "status",
+                "status_type": status_type,
+                "data": data,
+            })
         if self._connected:
             await self._send_queue.put(payload)
         else:
@@ -151,6 +164,10 @@ class qpsBackendClient(qpsBackendClientInterface):
         """Register a callback that receives qpsMissionCommand on incoming commands."""
         self._command_callback = callback
 
+    def on_return_to_source(self, callback: Callable) -> None:
+        """Register a callback invoked when the backend sends returnToSource."""
+        self._return_to_source_callback = callback
+
     def is_connected(self) -> bool:
         """Return True if the WebSocket connection is currently active."""
         return self._connected
@@ -170,6 +187,8 @@ class qpsBackendClient(qpsBackendClientInterface):
                 msg_type = msg.get("type")
                 if msg_type == "startDelivery":
                     self._handle_start_delivery(msg)
+                elif msg_type == "returnToSource":
+                    self._handle_return_to_source(msg)
                 else:
                     logger.info("Backend message: %s", msg)
         except asyncio.CancelledError:
@@ -276,3 +295,13 @@ class qpsBackendClient(qpsBackendClientInterface):
                 self._command_callback(command)
             except Exception as exc:
                 logger.warning("Command callback error: %s", exc)
+
+    def _handle_return_to_source(self, msg: dict) -> None:
+        """Parse returnToSource and invoke the registered callback."""
+        order_id = msg.get("orderId", "")
+        logger.info("returnToSource received: orderId=%s", order_id)
+        if self._return_to_source_callback is not None:
+            try:
+                self._return_to_source_callback(order_id)
+            except Exception as exc:
+                logger.warning("Return-to-source callback error: %s", exc)

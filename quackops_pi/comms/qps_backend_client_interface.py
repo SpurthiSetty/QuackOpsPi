@@ -36,5 +36,9 @@ class qpsBackendClientInterface(ABC):
         ...
 
     @abstractmethod
+    def on_return_to_source(self, callback: Callable) -> None:
+        ...
+
+    @abstractmethod
     def is_connected(self) -> bool:
         ...
