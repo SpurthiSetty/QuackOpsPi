@@ -137,7 +137,7 @@ class qpsRCFlightManager(qpsFlightManagerBase):
         logger.warning(
             "RC takeoff: altitude is time-based estimate only — no GPS feedback"
         )
-        await self._set_mode(self.MODE_ALT_HOLD)
+        await self.set_mode(self.MODE_ALT_HOLD)
         self._set_rc_channels(throttle=RC_CENTER)
         logger.info("ALT_HOLD engaged, ready for takeoff")
 

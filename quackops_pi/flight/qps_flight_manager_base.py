@@ -334,7 +334,7 @@ class qpsFlightManagerBase(qpsFlightManagerInterface):
             f"Heartbeat condition not met within {timeout}s"
         )
 
-    async def _set_mode(self, mode_id: int, timeout: float = 10.0) -> None:
+    async def set_mode(self, mode_id: int, timeout: float = 10.0) -> None:
         """Switch flight mode and verify via heartbeat custom_mode field.
 
         Uses MAV_CMD_DO_SET_MODE and confirms via heartbeat (not COMMAND_ACK)

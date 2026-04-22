@@ -65,8 +65,8 @@ RC_CENTER = 1500    # stick center (neutral roll/pitch/yaw)
 RC_THROTTLE_MIN = 1000  # throttle at bottom
 
 # Defaults
-DEFAULT_THROTTLE_PCT = 50    # percent of throttle (0-100)
-DEFAULT_HOVER_TIME_S = 6.0
+DEFAULT_THROTTLE_PCT = 65   # percent of throttle (0-100)
+DEFAULT_HOVER_TIME_S = 15.0
 MAX_FLIGHT_TIME_S = 25.0
 
 # Timing

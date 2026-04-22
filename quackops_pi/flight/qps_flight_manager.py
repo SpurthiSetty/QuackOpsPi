@@ -66,7 +66,7 @@ class qpsFlightManager(qpsFlightManagerBase):
         """Switch to LAND mode and wait for touchdown (alt < 1m, vz < 0.3 m/s)."""
         logger.info("Landing...")
         self._land_event.clear()
-        await self._set_mode(self.MODE_LAND)
+        await self.set_mode(self.MODE_LAND)
         try:
             await asyncio.wait_for(self._land_event.wait(), timeout=120.0)
             logger.info("Landed!")
@@ -76,7 +76,7 @@ class qpsFlightManager(qpsFlightManagerBase):
     async def return_to_launch(self) -> None:
         """Switch to RTL mode. Does not block until landing."""
         logger.info("Return to launch...")
-        await self._set_mode(self.MODE_RTL)
+        await self.set_mode(self.MODE_RTL)
         logger.info("RTL mode active")
 
     # ── Waypoint missions ─────────────────────────────────────────────
@@ -188,7 +188,7 @@ class qpsFlightManager(qpsFlightManagerBase):
     async def start_mission(self) -> None:
         """Switch to AUTO mode to begin the uploaded waypoint mission."""
         logger.info("Starting mission...")
-        await self._set_mode(self.MODE_AUTO)
+        await self.set_mode(self.MODE_AUTO)
         logger.info("Mission running")
 
     async def pause_mission(self) -> None:
@@ -198,7 +198,7 @@ class qpsFlightManager(qpsFlightManagerBase):
         and holds current position.
         """
         logger.info("Pausing mission (GUIDED hold)...")
-        await self._set_mode(self.MODE_GUIDED)
+        await self.set_mode(self.MODE_GUIDED)
         logger.info("Mission paused")
 
     async def is_mission_finished(self) -> bool:

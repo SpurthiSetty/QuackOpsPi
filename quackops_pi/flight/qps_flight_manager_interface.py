@@ -101,3 +101,10 @@ class qpsFlightManagerInterface(ABC):
     @abstractmethod
     async def send_hover_setpoint(self) -> None:
         ...
+
+    # ── Mode control (public) ──────────────────────────────────────────
+
+    @abstractmethod
+    async def set_mode(self, mode_id: int, timeout: float = 10.0) -> None:
+        """Switch the flight controller to mode_id and confirm via heartbeat."""
+        ...

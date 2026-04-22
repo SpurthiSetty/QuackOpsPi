@@ -56,6 +56,15 @@ class qpsConfig:
     heartbeat_interval_s: float = 5.0
     reconnection_interval_s: float = 3.0
 
+    # ── Landing controller — shared ───────────────────────────────────
+    lock_frame_count: int = 5              # consecutive detections to confirm lock
+    landing_strategy: str = "simple"       # "simple" or "servo"
+
+    # ── Visual servo landing controller ───────────────────────────────
+    proportional_gain: float = 0.001       # pixel offset → m/s velocity mapping
+    center_tolerance_px: int = 30          # pixels from center = "centered"
+    max_correction_velocity: float = 0.3   # m/s cap for cage safety
+
     # ── RC Flight Manager (indoor/no-GPS) ─────────────────────────────
     flight_manager_type: str = "gps"           # "gps" or "rc"
     rc_climb_throttle_pwm: int = 1650          # throttle PWM for climbing in ALT_HOLD

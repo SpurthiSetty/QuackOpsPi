@@ -157,6 +157,26 @@ class qpsMockFlightManager(qpsFlightManagerInterface):
         """Log a hover setpoint command."""
         self.command_log.append("hover_setpoint")
 
+    async def set_mode(self, mode_id: int, timeout: float = 10.0) -> None:
+        self.command_log.append(f"set_mode:{mode_id}")
+
+    async def pause_mission(self) -> None:
+        self.command_log.append("pause_mission")
+
+    async def is_mission_finished(self) -> bool:
+        return self.mission_complete
+
+    async def goto_location(
+        self,
+        latitude_deg: float,
+        longitude_deg: float,
+        altitude_m: float,
+        yaw_deg: float = float("nan"),
+    ) -> None:
+        self.command_log.append(
+            f"goto_location:{latitude_deg:.6f},{longitude_deg:.6f},{altitude_m}"
+        )
+
     # ------------------------------------------------------------------
     # Test-helper methods
     # ------------------------------------------------------------------
