@@ -48,9 +48,31 @@ class qpsConfig:
     # ── Pickup ────────────────────────────────────────────────────────
     pickup_timeout_s: float = 300.0
 
+    # ── Stream server ─────────────────────────────────────────────────
+    stream_port: int = 8080
+    stream_fps: int = 15
+
     # ── Backend comms ─────────────────────────────────────────────────
     heartbeat_interval_s: float = 5.0
     reconnection_interval_s: float = 3.0
+
+    # ── Landing controller — shared ───────────────────────────────────
+    lock_frame_count: int = 5              # consecutive detections to confirm lock
+    landing_strategy: str = "simple"       # "simple" or "servo"
+
+    # ── Visual servo landing controller ───────────────────────────────
+    proportional_gain: float = 0.001       # pixel offset → m/s velocity mapping
+    center_tolerance_px: int = 30          # pixels from center = "centered"
+    max_correction_velocity: float = 0.3   # m/s cap for cage safety
+
+    # ── RC Flight Manager (indoor/no-GPS) ─────────────────────────────
+    flight_manager_type: str = "gps"           # "gps" or "rc"
+    rc_climb_throttle_pwm: int = 1650          # throttle PWM for climbing in ALT_HOLD
+    rc_descend_throttle_pwm: int = 1350        # throttle PWM for descending in ALT_HOLD
+    rc_climb_rate_m_per_s: float = 0.5         # estimated climb rate for time-based altitude
+    max_rc_velocity_m_s: float = 0.5           # max velocity for NED-to-RC mapping
+    max_rc_offset_pwm: int = 200               # max PWM offset from center for velocity commands
+    rc_landing_duration_s: float = 5.0         # time to descend before disarm
 
     # ── I/O ───────────────────────────────────────────────────────────
 

@@ -1,2 +1,5 @@
 __pycache__/
 *.pyc
+
+# Outdoor test logs (video, telemetry CSV, MAVLink binary logs)
+outdoor_tests/logs/
