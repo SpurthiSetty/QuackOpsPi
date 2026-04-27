@@ -123,6 +123,7 @@ class TestDiagnostics:
             "mode": state.flight_mode if state else "UNKNOWN",
             "armed": state.is_armed if state else False,
             "batt_pct": state.battery_percent if state else 0.0,
+            "batt_voltage": state.battery_voltage if state else 0.0,
             "sats": state.gps_num_satellites if state else 0,
             "fix_type": state.gps_fix_type if state else 0,
             # HDOP captured separately by wait_gps_ready helper; default 99.9
@@ -169,6 +170,7 @@ class FailsafeWatcher:
         self.battery_warning: asyncio.Event = asyncio.Event()
         self.fence_breach: asyncio.Event = asyncio.Event()
         self.unexpected_mode_change: asyncio.Event = asyncio.Event()
+        self.prearm_messages: list[str] = []
 
         self._tm = tm
         self._expected_mode: Optional[str] = None
@@ -221,6 +223,8 @@ class FailsafeWatcher:
         if any(s in text for s in self._FENCE_STRINGS):
             self._log.warning("Fence breach detected in STATUSTEXT: %s", msg.text.rstrip())
             self.fence_breach.set()
+        if "prearm" in text:
+            self.prearm_messages.append(msg.text.rstrip("\x00"))
 
     def _on_battery_critical(self, pct: float) -> None:
         self._log.warning("Battery CRITICAL: %.0f%% — setting battery_failsafe event", pct)
@@ -275,7 +279,7 @@ async def hover_with_logging(
         snap = diag.snapshot(tm)
         csv_writer.writerow(snap)
         # Flush after every row so partial logs survive crashes
-        csv_writer.writer.stream.flush()  # type: ignore[attr-defined]
+        csv_writer._file.flush()
         log.info(
             "t=%.0fs  alt=%.1fm  drift=%.1fm  mode=%s  armed=%s  batt=%.0f%%"
             "  sats=%d  hdop=%.1f  vel_var=%.3f  pos_h=%.3f  vx=%.1f  vy=%.1f  vz=%.1f",
@@ -383,7 +387,7 @@ async def wait_gps_ready(
 
 _TELEMETRY_FIELDS = [
     "timestamp", "lat", "lon", "alt_m", "drift_m", "heading_deg", "speed_m_s",
-    "mode", "armed", "batt_pct", "sats", "fix_type", "hdop",
+    "mode", "armed", "batt_pct", "batt_voltage", "sats", "fix_type", "hdop",
     "vel_var", "pos_horiz_var", "pos_vert_var", "compass_var",
     "vibe_x", "vibe_y", "vibe_z",
 ]
@@ -403,14 +407,29 @@ def make_log_dir(base_dir: str | Path, test_name: str) -> Path:
     return log_dir
 
 
-def open_telemetry_csv(log_dir: Path) -> csv.DictWriter:
-    """Open telemetry.csv in log_dir, write header, return DictWriter."""
+# def open_telemetry_csv(log_dir: Path) -> csv.DictWriter:
+#     """Open telemetry.csv in log_dir, write header, return DictWriter."""
+#     f = open(log_dir / "telemetry.csv", "w", newline="")
+#     writer = csv.DictWriter(f, fieldnames=_TELEMETRY_FIELDS, extrasaction="ignore")
+#     writer.writeheader()
+#     # Attach the file object so callers can flush it
+#     writer.writer.stream = f  # type: ignore[attr-defined]
+#     return writer
+
+def open_telemetry_csv(log_dir):
+    """Opens telemetry.csv in the log directory. Returns (writer, file_handle)."""
     f = open(log_dir / "telemetry.csv", "w", newline="")
-    writer = csv.DictWriter(f, fieldnames=_TELEMETRY_FIELDS, extrasaction="ignore")
+    writer = csv.DictWriter(f, fieldnames=[
+        "timestamp", "lat", "lon", "alt_m", "drift_m",
+        "heading_deg", "speed_m_s", "mode", "armed",
+        "batt_pct", "batt_voltage", "sats", "fix_type", "hdop",
+        "vel_var", "pos_horiz_var", "pos_vert_var", "compass_var",
+        "vibe_x", "vibe_y", "vibe_z",
+    ])
     writer.writeheader()
-    # Attach the file object so callers can flush it
-    writer.writer.stream = f  # type: ignore[attr-defined]
-    return writer
+    writer._file = f
+    f.flush()
+    return writer, f
 
 
 class FailsafeLog:

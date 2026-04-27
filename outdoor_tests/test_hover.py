@@ -98,7 +98,8 @@ async def main() -> int:
     diag = TestDiagnostics(fm)
     fs = FailsafeWatcher(fm, tm)
 
-    csv_writer = open_telemetry_csv(log_dir)
+    #csv_writer = open_telemetry_csv(log_dir)
+    csv_writer, csv_file = open_telemetry_csv(log_dir)
     fs_log: FailsafeLog = open_failsafe_log(log_dir)
 
     watcher_task: asyncio.Task | None = None
@@ -116,7 +117,7 @@ async def main() -> int:
 
         # ── GPS preflight ────────────────────────────────────────────────────
         log.info("Waiting for GPS lock...")
-        await wait_gps_ready(fm, tm, min_sats=12, max_hdop=1.5, log=log)
+        await wait_gps_ready(fm, tm, min_sats=10, max_hdop=1.4, log=log)
 
         # ── Capture home position ────────────────────────────────────────────
         home = tm.get_gps_position()
@@ -128,12 +129,26 @@ async def main() -> int:
             home.latitude_deg, home.longitude_deg, home.altitude_m,
         )
 
+        # ── Pre-flight battery check ─────────────────────────────────────────
+        state = tm.get_drone_state()
+        batt_v = state.battery_voltage if state else 0.0
+        batt_pct = state.battery_percent if state else 0.0
+        log.info("Pre-flight battery: %.0f%%  %.2fV", batt_pct, batt_v)
+        if 0 < batt_v < 11.6:
+            raise RuntimeError(
+                f"Battery too low to fly: {batt_v:.2f}V (stop testing below 11.6V, full=12.6V)"
+            )
+
         # ── Mode → GUIDED ────────────────────────────────────────────────────
         await fm.set_mode(fm.MODE_GUIDED)
         fs.set_expected_mode("GUIDED")
 
         log.info(">>> STAND CLEAR — arming in 3 seconds <<<")
         await asyncio.sleep(3)
+        if fs.prearm_messages:
+            log.warning("Pre-arm warnings from FC (arm may be rejected):")
+            for m in fs.prearm_messages:
+                log.warning("  FC: %s", m)
 
         # ── Arm ──────────────────────────────────────────────────────────────
         log.info("Arming...")
@@ -164,7 +179,9 @@ async def main() -> int:
         log.info("Landed")
 
         # ── Disarm ───────────────────────────────────────────────────────────
-        await fm.disarm()
+        state = tm.get_drone_state()
+        if state is None or state.is_armed:
+            await fm.disarm()
         in_flight = False
         log.info("Disarmed")
 
@@ -202,10 +219,14 @@ async def _emergency_land(
     try:
         fs.set_expected_mode("LAND")
         await fm.land()
+    except Exception:
+        log.exception("Emergency land failed — manual intervention required")
+        return
+    try:
         await fm.disarm()
         log.info("Emergency land/disarm complete")
-    except Exception:
-        log.exception("Emergency land/disarm also failed — manual intervention required")
+    except RuntimeError:
+        log.info("Already disarmed after landing")
 
 
 if __name__ == "__main__":
