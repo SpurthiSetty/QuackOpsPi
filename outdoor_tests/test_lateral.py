@@ -150,7 +150,7 @@ async def main() -> int:
     diag = TestDiagnostics(fm)
     fs = FailsafeWatcher(fm, tm)
 
-    csv_writer = open_telemetry_csv(log_dir)
+    csv_writer, csv_file = open_telemetry_csv(log_dir)
     fs_log: FailsafeLog = open_failsafe_log(log_dir)
 
     watcher_task: asyncio.Task | None = None
@@ -168,7 +168,7 @@ async def main() -> int:
         )
 
         log.info("Waiting for GPS lock...")
-        await wait_gps_ready(fm, tm, min_sats=12, max_hdop=1.5, log=log)
+        await wait_gps_ready(fm, tm, min_sats=10, max_hdop=1.4, log=log)
 
         home = tm.get_gps_position()
         if home is None:
@@ -255,13 +255,13 @@ async def main() -> int:
         if in_flight and home_lat != 0.0:
             await _return_home_and_land(fm, tm, fs, home_lat, home_lon, args.alt, config, log)
         elif in_flight:
-            await _emergency_land(fm, fs, log)
+            await _emergency_land(fm, fs, tm, log)
         return 1
 
     except Exception:
         log.exception("Unexpected error — emergency land")
         if in_flight:
-            await _emergency_land(fm, fs, log)
+            await _emergency_land(fm, fs, tm, log)
         return 1
 
     finally:
@@ -274,10 +274,14 @@ async def main() -> int:
         await tm.stop()
         await fm.disconnect()
         fs_log.close()
+        csv_file.close()
         log.info("Done. Logs in: %s", log_dir)
         print(f"\nLogs saved to: {log_dir}")
 
     return 0
+
+
+_ABORT_MODES = ("LAND", "RTL", "SMART_RTL", "STABILIZE", "ALT_HOLD", "LOITER")
 
 
 async def _return_home_and_land(
@@ -290,6 +294,16 @@ async def _return_home_and_land(
     config: qpsConfig,
     log: logging.Logger,
 ) -> None:
+    state = tm.get_drone_state()
+    if state is None:
+        log.warning("Drone state unavailable — proceeding with RTH (unknown mode)")
+    elif state.flight_mode in _ABORT_MODES:
+        log.warning(
+            "Current mode is %s — skipping RTH to avoid fighting pilot/FC takeover",
+            state.flight_mode,
+        )
+        return
+
     log.info("Flying to home (%.7f, %.7f) at %.1fm...", home_lat, home_lon, alt_m)
     try:
         await fm.goto_location(home_lat, home_lon, alt_m)
@@ -310,15 +324,34 @@ async def _return_home_and_land(
 
 
 async def _emergency_land(
-    fm: qpsFlightManager, fs: FailsafeWatcher, log: logging.Logger
+    fm: qpsFlightManager,
+    fs: FailsafeWatcher,
+    tm: qpsTelemetryMonitor,
+    log: logging.Logger,
 ) -> None:
+    state = tm.get_drone_state()
+    if state is not None and state.flight_mode in ("LAND", "RTL", "SMART_RTL"):
+        log.info(
+            "FC already in %s — skipping fm.land(), attempting disarm only",
+            state.flight_mode,
+        )
+        try:
+            await fm.disarm()
+            log.info("Disarmed")
+        except RuntimeError:
+            log.info("Already disarmed")
+        return
     try:
         fs.set_expected_mode("LAND")
         await fm.land()
+    except Exception:
+        log.exception("Emergency land failed — manual intervention required")
+        return
+    try:
         await fm.disarm()
         log.info("Emergency land/disarm complete")
-    except Exception:
-        log.exception("Emergency land also failed — manual intervention required")
+    except RuntimeError:
+        log.info("Already disarmed after landing")
 
 
 if __name__ == "__main__":

@@ -17,5 +17,4 @@ exec mavproxy.py \
   --baudrate=57600 \
   --out=udpout:127.0.0.1:14550 \
   --out=udpin:0.0.0.0:14551 \
-  --logfile="$LOGDIR/mavproxy.tlog" \
-  --daemon
+  --logfile="$LOGDIR/mavproxy.tlog"

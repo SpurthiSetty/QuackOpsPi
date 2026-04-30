@@ -46,17 +46,18 @@ def _warn(s: str) -> str: return f"{_YELLOW}!{_RESET} {s}"
 
 _PARAMS: list[tuple[str, Optional[float], str]] = [
     ("ARMING_CHECK",    1.0,   "Pre-arm checks ON"),
-    ("FS_THR_ENABLE",   1.0,   "RC failsafe → RTL"),
-    ("FS_GCS_ENABLE",   1.0,   "GCS failsafe ON"),
+    ("FS_THR_ENABLE",   3.0,   "RC failsafe → LAND"),
+    ("FS_GCS_ENABLE",   5.0,   "GCS failsafe → LAND"),
     ("FS_GCS_TIMEOUT",  5.0,   "GCS timeout 5 s"),
-    ("BATT_FS_LOW_ACT", 2.0,   "Low battery → RTL"),
+    ("BATT_FS_LOW_ACT", 0.0,   "Low battery → WARN ONLY (pilot decides)"),
     ("BATT_FS_CRT_ACT", 1.0,   "Critical battery → LAND"),
     ("BATT_LOW_VOLT",   None,  "Low-voltage threshold (user-confirmed)"),
     ("BATT_CRT_VOLT",   None,  "Critical-voltage threshold (user-confirmed)"),
     ("FENCE_ENABLE",    1.0,   "Geofence ON"),
     ("FENCE_TYPE",      3.0,   "Altitude + circle fence"),
-    ("FENCE_RADIUS",    15.0,  "Fence radius 15 m (first outdoor test)"),
-    ("FENCE_ACTION",    1.0,   "Fence breach → RTL"),
+    ("FENCE_RADIUS",    30.0,  "Fence radius 15 m (first outdoor test)"),
+    ("FENCE_ACTION",    2.0,   "Fence breach → LAND"),
+    ("FENCE_ALT_MAX",   10.0,   "Fence altitude max 5 m (tight ceiling)"),
     ("RTL_ALT",         1500.0,"RTL altitude 15 m (above obstacles)"),
     ("DISARM_DELAY",    10.0,  "Auto-disarm 10 s after landing"),
 ]
