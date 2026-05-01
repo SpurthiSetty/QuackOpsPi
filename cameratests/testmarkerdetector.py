@@ -114,20 +114,18 @@ async def main():
     # ── Step 1: Start camera ──
     log.info("[1/4] Starting camera...")
     cam = qpsPiCameraManager(config)
-    if not cam.start():
-        log.error("✗ Camera failed to start")
-        sys.exit(1)
+    await cam.start()
     log.info("  ✓ Camera started")
 
     # Wait for first frame
     t0 = time.time()
     while time.time() - t0 < 5.0:
-        if cam.get_frame() is not None:
+        if await cam.get_frame() is not None:
             break
         await asyncio.sleep(0.05)
     else:
         log.error("✗ No frame from camera within 5s")
-        cam.stop()
+        await cam.stop()
         sys.exit(1)
     log.info(f"  ✓ First frame ready in {time.time() - t0:.2f}s")
 
@@ -154,7 +152,7 @@ async def main():
     last_log_idx = -1
 
     while time.time() - t_start < TEST_DURATION_S:
-        frame = cam.get_frame()
+        frame = await cam.get_frame()
         if frame is None:
             await asyncio.sleep(0.01)
             continue
@@ -203,7 +201,7 @@ async def main():
 
     # ── Step 4: Cleanup + report ──
     log.info("[4/4] Stopping camera...")
-    cam.stop()
+    await cam.stop()
 
     log.info("")
     log.info("=" * 60)

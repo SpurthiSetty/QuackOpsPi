@@ -12,7 +12,7 @@ from quackops_pi.vision.qps_marker_detector import qpsMarkerDetector
 
 async def main():
     config = qpsConfig()
-    cam = qpsPiCameraManager(config); cam.start()
+    cam = qpsPiCameraManager(config); await cam.start()
     detector = qpsMarkerDetector(config)
     await asyncio.sleep(1)  # let camera settle
     print('Hold marker steady in view...')
@@ -20,7 +20,7 @@ async def main():
     
     saved = 0
     while saved < 5:
-        frame = cam.get_frame()
+        frame = await cam.get_frame()
         if frame is None: 
             await asyncio.sleep(0.05); continue
         dets = await detector.detect(frame)
@@ -40,6 +40,6 @@ async def main():
             await asyncio.sleep(0.5)
         else:
             await asyncio.sleep(0.05)
-    cam.stop()
+    await cam.stop()
 
 asyncio.run(main())

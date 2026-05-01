@@ -154,7 +154,6 @@ async def main() -> int:
         log.info("Arming...")
         await fm.arm()
         in_flight = True
-        log.info("Armed")
 
         # ── Takeoff ──────────────────────────────────────────────────────────
         log.info("Taking off to %.1fm...", args.alt)

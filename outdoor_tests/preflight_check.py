@@ -53,11 +53,8 @@ _PARAMS: list[tuple[str, Optional[float], str]] = [
     ("BATT_FS_CRT_ACT", 1.0,   "Critical battery → LAND"),
     ("BATT_LOW_VOLT",   None,  "Low-voltage threshold (user-confirmed)"),
     ("BATT_CRT_VOLT",   None,  "Critical-voltage threshold (user-confirmed)"),
-    ("FENCE_ENABLE",    1.0,   "Geofence ON"),
-    ("FENCE_TYPE",      3.0,   "Altitude + circle fence"),
-    ("FENCE_RADIUS",    30.0,  "Fence radius 15 m (first outdoor test)"),
-    ("FENCE_ACTION",    2.0,   "Fence breach → LAND"),
-    ("FENCE_ALT_MAX",   10.0,   "Fence altitude max 5 m (tight ceiling)"),
+    ("FENCE_ENABLE",    0.0,   "Geofence OFF"),
+    ("FENCE_ACTION",    0.0,   "Fence breach → report only (no failsafe)"),
     ("RTL_ALT",         1500.0,"RTL altitude 15 m (above obstacles)"),
     ("DISARM_DELAY",    10.0,  "Auto-disarm 10 s after landing"),
 ]
@@ -126,8 +123,8 @@ def _prompt_battery_voltage(param_name: str, current_val: Optional[float]) -> fl
 def main() -> int:
     parser = argparse.ArgumentParser(description="QuackOps preflight parameter check")
     parser.add_argument(
-        "--connection", default="udpin:127.0.0.1:14550",
-        help="MAVLink connection string (default: udpin:127.0.0.1:14550)",
+        "--connection", default="udpout:127.0.0.1:14551",
+        help="MAVLink connection string (default: udpout:127.0.0.1:14551)",
     )
     args = parser.parse_args()
 
@@ -137,6 +134,11 @@ def main() -> int:
 
     try:
         mav = mavutil.mavlink_connection(args.connection)
+        mav.mav.heartbeat_send(
+            mavutil.mavlink.MAV_TYPE_GCS,
+            mavutil.mavlink.MAV_AUTOPILOT_INVALID,
+            0, 0, 0,
+        )
         mav.wait_heartbeat(timeout=10)
     except Exception as exc:
         print(f"{_fail(f'Cannot connect: {exc}')}")

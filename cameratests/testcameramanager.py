@@ -21,14 +21,13 @@ Run on the Pi from project root:
     python3 cameratests/test_phase_b_pi_camera_manager.py
 """
 
+import asyncio
 import logging
 import sys
 import time
 from pathlib import Path
 
 import cv2
-import sys
-from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from quackops_pi.config.qps_config import qpsConfig
@@ -50,7 +49,7 @@ logging.basicConfig(
 log = logging.getLogger("qps.phase_b")
 
 
-def main():
+async def main():
     log.info("=" * 60)
     log.info("QuackOps — Phase B: qpsPiCameraManager Bring-up")
     log.info("=" * 60)
@@ -69,16 +68,12 @@ def main():
 
     # ── Step 2: Start camera ──
     log.info("[1/5] Starting camera...")
-    started = cam.start()
-    if not started:
-        log.error("✗ Camera failed to start. Check the qpsPiCameraManager log "
-                  "above for the underlying picamera2 error.")
-        sys.exit(1)
+    await cam.start()
     log.info("  ✓ Camera started")
 
     if not cam.is_running():
         log.error("✗ Camera reports start succeeded but is_running() is False")
-        cam.stop()
+        await cam.stop()
         sys.exit(1)
     log.info("  ✓ Capture thread running")
 
@@ -88,18 +83,18 @@ def main():
         t_start_wait = time.time()
         first_frame = None
         while time.time() - t_start_wait < FIRST_FRAME_TIMEOUT_S:
-            frame = cam.get_frame()
+            frame = await cam.get_frame()
             if frame is not None:
                 first_frame = frame
                 break
-            time.sleep(0.05)
+            await asyncio.sleep(0.05)
 
         if first_frame is None:
             log.error(
                 f"✗ No frame received within {FIRST_FRAME_TIMEOUT_S}s. "
                 "Camera started but capture thread is not producing frames."
             )
-            cam.stop()
+            await cam.stop()
             sys.exit(1)
 
         cold_start_s = time.time() - t_start_wait
@@ -129,17 +124,13 @@ def main():
         max_attempts = NUM_FRAMES_TO_CAPTURE * 10  # safety bound
 
         while len(frames_captured) < NUM_FRAMES_TO_CAPTURE and attempts < max_attempts:
-            frame = cam.get_frame()
+            frame = await cam.get_frame()
             attempts += 1
 
-            # qpsPiCameraManager.get_frame() returns a copy of latest_frame, so
-            # consecutive calls may return the same logical frame if we poll
-            # faster than the capture thread updates. Use object identity is
-            # not reliable since copies are made; instead just sleep ~1/fps.
             if frame is not None:
                 frames_captured.append(frame)
                 timestamps.append(time.time())
-            time.sleep(1.0 / config.camera_fps / 2)  # poll at 2x target fps
+            await asyncio.sleep(1.0 / config.camera_fps / 2)  # poll at 2x target fps
 
         t_capture_end = time.time()
         elapsed = t_capture_end - t_capture_start
@@ -175,7 +166,7 @@ def main():
 
         # ── Step 6: Stop camera cleanly ──
         log.info("[5/5] Stopping camera...")
-        cam.stop()
+        await cam.stop()
         if cam.is_running():
             log.warning("  ⚠ Camera reports still running after stop()")
         else:
@@ -183,11 +174,11 @@ def main():
 
     except KeyboardInterrupt:
         log.warning("Interrupted by user — stopping camera")
-        cam.stop()
+        await cam.stop()
         sys.exit(130)
     except Exception:
         log.exception("Unexpected error — stopping camera")
-        cam.stop()
+        await cam.stop()
         sys.exit(1)
 
     log.info("=" * 60)
@@ -197,4 +188,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
