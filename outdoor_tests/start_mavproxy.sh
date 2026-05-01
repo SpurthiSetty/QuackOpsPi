@@ -5,17 +5,16 @@
 #   ./outdoor_tests/start_mavproxy.sh [LOG_DIR]
 #
 # Outputs:
-#   udpout:127.0.0.1:14550  → preflight_check.py + qpsFlightManager (udpin:127.0.0.1:14550)
-#   udpin:0.0.0.0:14551     → Mission Planner connects here (UDP Client 192.168.1.128:14551)
+#   udpout:192.168.137.1:14550  → Mission Planner on Windows laptop
+#   udpin:127.0.0.1:14551       → preflight_check.py + flight scripts (udpout:127.0.0.1:14551)
 set -euo pipefail
 
 LOGDIR="${1:-/tmp}"
 mkdir -p "$LOGDIR"
 
 exec mavproxy.py \
-  --master=/dev/ttyAMA0 \
-  --baudrate=57600 \
-  --out=udpout:127.0.0.1:14550 \
-  --out=udpin:0.0.0.0:14551 \
+  --master=/dev/ttyAMA0,57600 \
+  --out=udpout:192.168.137.1:14550 \
+  --out=udpin:127.0.0.1:14551 \
   --logfile="$LOGDIR/mavproxy.tlog" \
   --daemon

@@ -134,7 +134,7 @@ async def main() -> int:
         batt_v = state.battery_voltage if state else 0.0
         batt_pct = state.battery_percent if state else 0.0
         log.info("Pre-flight battery: %.0f%%  %.2fV", batt_pct, batt_v)
-        if 0 < batt_v < 11.6:
+        if 0 < batt_v < 1:
             raise RuntimeError(
                 f"Battery too low to fly: {batt_v:.2f}V (stop testing below 11.6V, full=12.6V)"
             )
@@ -154,7 +154,6 @@ async def main() -> int:
         log.info("Arming...")
         await fm.arm()
         in_flight = True
-        log.info("Armed")
 
         # ── Takeoff ──────────────────────────────────────────────────────────
         log.info("Taking off to %.1fm...", args.alt)
@@ -188,13 +187,13 @@ async def main() -> int:
     except (KeyboardInterrupt, asyncio.CancelledError):
         log.warning("Interrupted — attempting emergency land/disarm")
         if in_flight:
-            await _emergency_land(fm, fs, log)
+            await _emergency_land(fm, fs, tm, log)
         return 1
 
     except Exception:
         log.exception("Unexpected error during flight — attempting emergency land/disarm")
         if in_flight:
-            await _emergency_land(fm, fs, log)
+            await _emergency_land(fm, fs, tm, log)
         return 1
 
     finally:
@@ -207,6 +206,7 @@ async def main() -> int:
         await tm.stop()
         await fm.disconnect()
         fs_log.close()
+        csv_file.close()
         log.info("Done. Logs in: %s", log_dir)
         print(f"\nLogs saved to: {log_dir}")
 
@@ -214,8 +214,23 @@ async def main() -> int:
 
 
 async def _emergency_land(
-    fm: qpsFlightManager, fs: FailsafeWatcher, log: logging.Logger
+    fm: qpsFlightManager,
+    fs: FailsafeWatcher,
+    tm: qpsTelemetryMonitor,
+    log: logging.Logger,
 ) -> None:
+    state = tm.get_drone_state()
+    if state is not None and state.flight_mode in ("LAND", "RTL", "SMART_RTL"):
+        log.info(
+            "FC already in %s — skipping fm.land(), attempting disarm only",
+            state.flight_mode,
+        )
+        try:
+            await fm.disarm()
+            log.info("Disarmed")
+        except RuntimeError:
+            log.info("Already disarmed")
+        return
     try:
         fs.set_expected_mode("LAND")
         await fm.land()

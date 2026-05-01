@@ -31,11 +31,11 @@ class qpsPiCameraManager(qpsCameraManagerInterface):
         self.capture_thread: Thread | None = None
         self.frame_lock: Lock = Lock()
 
-    def start(self) -> bool:
+    async def start(self) -> None:
         """Start the PiCamera2 and launch the background capture thread.
 
-        Returns:
-            bool: True if the camera was started successfully.
+        Raises:
+            RuntimeError: If the camera fails to initialise.
         """
         try:
             from picamera2 import Picamera2
@@ -54,12 +54,11 @@ class qpsPiCameraManager(qpsCameraManagerInterface):
             self.capture_thread.start()
 
             logger.info("PiCamera2 started at %dx%d @ %d fps", width, height, self.config.camera_fps)
-            return True
         except Exception as e:
             logger.error("Failed to start PiCamera2: %s", e)
-            return False
+            raise RuntimeError(f"PiCamera2 failed to start: {e}") from e
 
-    def stop(self) -> None:
+    async def stop(self) -> None:
         """Stop the camera and join the capture thread."""
         self.running = False
         if self.capture_thread is not None:
@@ -70,7 +69,7 @@ class qpsPiCameraManager(qpsCameraManagerInterface):
             self.camera = None
         logger.info("PiCamera2 stopped")
 
-    def get_frame(self) -> numpy.ndarray | None:
+    async def get_frame(self) -> numpy.ndarray | None:
         """Return the most recently captured frame in a thread-safe manner.
 
         Returns:

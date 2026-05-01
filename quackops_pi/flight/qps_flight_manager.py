@@ -290,7 +290,7 @@ class qpsFlightManager(qpsFlightManagerBase):
         while loop.time() < deadline:
             if self._last_gps_msg is not None:
                 alt = self._last_gps_msg.relative_alt / 1000.0
-                logger.debug("  Alt: %.1fm (target %.1fm)", alt, target_m)
+                logger.info("  Climbing: %.1fm / %.1fm", alt, target_m)
                 if alt >= target_m:
                     logger.info("Altitude reached: %.1fm", alt)
                     return

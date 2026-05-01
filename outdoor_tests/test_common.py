@@ -235,7 +235,7 @@ class FailsafeWatcher:
         self.battery_warning.set()
 
     async def watch_mode_transitions(self) -> None:
-        """Background task: flag unexpected GUIDED → RTL/LAND transitions."""
+        """Background task: flag unexpected GUIDED → abort/pilot-takeover transitions."""
         prev_mode: Optional[str] = None
         while True:
             await asyncio.sleep(0.5)
@@ -245,11 +245,12 @@ class FailsafeWatcher:
             mode = state.flight_mode
             if (
                 prev_mode == "GUIDED"
-                and mode in ("RTL", "LAND", "SMART_RTL")
+                and mode in ("RTL", "LAND", "SMART_RTL", "STABILIZE", "ALT_HOLD", "LOITER")
                 and self._expected_mode not in ("RTL", "LAND", "SMART_RTL")
             ):
                 self._log.warning(
-                    "Unexpected mode transition: GUIDED → %s (expected=%s)",
+                    "Unexpected mode transition: GUIDED → %s (expected=%s) "
+                    "— possible pilot takeover or FC failsafe",
                     mode, self._expected_mode,
                 )
                 self.unexpected_mode_change.set()

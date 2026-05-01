@@ -94,7 +94,17 @@ class qpsFlightManagerBase(qpsFlightManagerInterface):
         self._mav = await asyncio.to_thread(
             mavutil.mavlink_connection, self._config.connection_string
         )
-        await asyncio.to_thread(self._mav.wait_heartbeat)
+        self._mav.mav.heartbeat_send(
+            mavutil.mavlink.MAV_TYPE_GCS,
+            mavutil.mavlink.MAV_AUTOPILOT_INVALID,
+            0, 0, 0,
+        )
+        hb = await asyncio.to_thread(self._mav.wait_heartbeat, timeout=10)
+        if hb is None:
+            raise ConnectionError(
+                f"No heartbeat received from {self._config.connection_string} "
+                "within 10s — is MAVProxy running?"
+            )
         logger.info(
             "Connected! (sysid=%d, compid=%d)",
             self._mav.target_system,
