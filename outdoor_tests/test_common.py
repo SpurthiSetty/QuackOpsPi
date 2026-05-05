@@ -14,10 +14,18 @@ import csv
 import logging
 import math
 import os
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
+
+import cv2
+import numpy as np
+
+from quackops_pi.vision.qps_pi_camera_manager import qpsPiCameraManager
+from quackops_pi.vision.qps_marker_detector import qpsMarkerDetector
+from quackops_pi.vision.qps_stream_server import qpsStreamServer
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -451,3 +459,118 @@ class FailsafeLog:
 
 def open_failsafe_log(log_dir: Path) -> FailsafeLog:
     return FailsafeLog(log_dir)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Camera recording
+# ══════════════════════════════════════════════════════════════════════════════
+
+_sink_log = logging.getLogger("qps.recording_sink")
+
+
+class RecordingSink:
+    """Frame sink that writes video, detections, and timestamps to disk.
+
+    Invoked by qpsStreamServer's producer thread on each produced frame.
+    All I/O is protected by a lock and done synchronously — must stay fast
+    (< 10 ms) to avoid stalling stream fps.
+    """
+
+    def __init__(
+        self,
+        writer: cv2.VideoWriter,
+        det_csv: csv.writer,
+        det_file,
+        ts_csv: csv.writer,
+        ts_file,
+    ) -> None:
+        self._writer = writer
+        self._det_csv = det_csv
+        self._det_file = det_file
+        self._ts_csv = ts_csv
+        self._ts_file = ts_file
+        self._lock = threading.Lock()
+        self.frame_count = 0
+
+    def __call__(self, annotated_frame: np.ndarray, detections: list) -> None:
+        with self._lock:
+            try:
+                ts = time.time()
+                self._writer.write(annotated_frame)
+                self._ts_csv.writerow([self.frame_count, f"{ts:.6f}"])
+
+                if detections:
+                    for det in detections:
+                        corners_flat = det.corners.flatten().tolist()
+                        self._det_csv.writerow([
+                            f"{ts:.6f}", det.marker_id,
+                            f"{det.center_px[0]:.1f}", f"{det.center_px[1]:.1f}",
+                            *[f"{v:.1f}" for v in corners_flat],
+                        ])
+                    self._det_file.flush()
+
+                self._ts_file.flush()
+                self.frame_count += 1
+            except Exception as exc:
+                _sink_log.warning("Recording sink write error: %s", exc)
+
+
+def open_recording_sink(
+    log_dir: Path,
+    width: int,
+    height: int,
+    fps: int,
+) -> tuple:
+    """Open video writer + CSV files and return (sink, writer, det_file, ts_file).
+
+    Tries mp4v codec at log_dir/video.mp4; falls back to MJPG at
+    log_dir/video.avi if mp4v cannot open. The caller is responsible for
+    calling writer.release(), det_file.close(), and ts_file.close() on
+    shutdown.
+    """
+    mp4_path = str(log_dir / "video.mp4")
+    writer = cv2.VideoWriter(
+        mp4_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height)
+    )
+    if writer.isOpened():
+        _sink_log.info("VideoWriter: mp4v → %s", mp4_path)
+    else:
+        writer.release()
+        avi_path = str(log_dir / "video.avi")
+        writer = cv2.VideoWriter(
+            avi_path, cv2.VideoWriter_fourcc(*"MJPG"), fps, (width, height)
+        )
+        if not writer.isOpened():
+            raise RuntimeError("Cannot open VideoWriter with mp4v or MJPG codec")
+        _sink_log.warning("mp4v codec unavailable — falling back to MJPG AVI: %s", avi_path)
+
+    det_file = open(log_dir / "detections.csv", "w", newline="")
+    det_csv_writer = csv.writer(det_file)
+    det_csv_writer.writerow([
+        "timestamp", "marker_id", "center_x", "center_y",
+        "corner1_x", "corner1_y", "corner2_x", "corner2_y",
+        "corner3_x", "corner3_y", "corner4_x", "corner4_y",
+    ])
+
+    ts_file = open(log_dir / "frame_timestamps.csv", "w", newline="")
+    ts_csv_writer = csv.writer(ts_file)
+    ts_csv_writer.writerow(["frame_number", "unix_timestamp"])
+
+    sink = RecordingSink(writer, det_csv_writer, det_file, ts_csv_writer, ts_file)
+    return sink, writer, det_file, ts_file
+
+
+async def build_camera_stack(config) -> tuple:
+    """Construct camera manager, marker detector, and stream server.
+
+    Returns (camera, detector, stream). The caller is responsible for:
+      - registering any frame sinks before stream.start()
+      - calling await camera.start() before stream.start()
+      - calling stream.stop() then await camera.stop() during cleanup
+      - constructing qpsHoverSearchController separately, passing
+        (camera, detector, telemetry_monitor, config).
+    """
+    camera = qpsPiCameraManager(config)
+    detector = qpsMarkerDetector(config)
+    stream = qpsStreamServer(camera, detector, config)
+    return camera, detector, stream

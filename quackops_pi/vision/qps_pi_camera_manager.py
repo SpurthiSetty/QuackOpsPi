@@ -16,6 +16,9 @@ class qpsPiCameraManager(qpsCameraManagerInterface):
     Runs a background capture thread to continuously grab frames from
     the PiCamera2 hardware interface.  The latest frame is available via
     get_frame() in a thread-safe manner.
+
+    start() and stop() are idempotent — calling start() on an already-running
+    camera or stop() on an already-stopped camera is a no-op (logged at INFO).
     """
 
     def __init__(self, config: qpsConfig) -> None:
@@ -34,9 +37,19 @@ class qpsPiCameraManager(qpsCameraManagerInterface):
     async def start(self) -> None:
         """Start the PiCamera2 and launch the background capture thread.
 
+        Idempotent: if the camera is already running, logs and returns
+        without re-initialising.
+
         Raises:
             RuntimeError: If the camera fails to initialise.
         """
+        # TODO(qps-arch): Idempotent start/stop is a temporary fix. Long-term,
+        # the test script (or higher-level orchestrator) should own the camera
+        # lifecycle and search controllers should be pure frame consumers.
+        if self.running:
+            logger.info("PiCamera2 already running — start() is a no-op")
+            return
+
         try:
             from picamera2 import Picamera2
 
@@ -48,21 +61,32 @@ class qpsPiCameraManager(qpsCameraManagerInterface):
             )
             self.camera.configure(camera_config)
             self.camera.start()
-
             self.running = True
             self.capture_thread = Thread(target=self._capture_loop, daemon=True)
             self.capture_thread.start()
-
-            logger.info("PiCamera2 started at %dx%d @ %d fps", width, height, self.config.camera_fps)
+            logger.info(
+                "PiCamera2 started at %dx%d @ %d fps",
+                width,
+                height,
+                self.config.camera_fps,
+            )
         except Exception as e:
             logger.error("Failed to start PiCamera2: %s", e)
             raise RuntimeError(f"PiCamera2 failed to start: {e}") from e
 
     async def stop(self) -> None:
-        """Stop the camera and join the capture thread."""
+        """Stop the camera and join the capture thread.
+
+        Idempotent: if the camera is already fully stopped, logs and returns.
+        """
+        if not self.running and self.camera is None:
+            logger.info("PiCamera2 already stopped — stop() is a no-op")
+            return
+
         self.running = False
         if self.capture_thread is not None:
             self.capture_thread.join(timeout=2.0)
+            self.capture_thread = None
         if self.camera is not None:
             self.camera.stop()
             self.camera.close()
