@@ -218,32 +218,32 @@ class qpsFlightManager(qpsFlightManagerBase):
     ) -> None:
         """Fly to a GPS coordinate in GUIDED mode.
 
-        Sends MAV_CMD_DO_REPOSITION via command_long_send and awaits ACK.
-        Does NOT block until arrival — caller is responsible for monitoring
-        telemetry to detect when the drone reaches the target.
+        Uses SET_POSITION_TARGET_GLOBAL_INT (not MAV_CMD_DO_REPOSITION, which
+        ArduCopter 4.x rejects with MAV_RESULT_UNSUPPORTED in GUIDED mode).
+        This message produces no COMMAND_ACK — arrival detection is the
+        caller's responsibility via wait_for_arrival.
         """
         logger.info(
-            "goto_location lat=%.6f lon=%.6f alt=%.1fm yaw=%.1f deg",
-            latitude_deg, longitude_deg, altitude_m, yaw_deg,
+            "goto_location lat=%.6f lon=%.6f alt=%.1fm",
+            latitude_deg, longitude_deg, altitude_m,
         )
-        await self._send_and_await_ack(
-            mavutil.mavlink.MAV_CMD_DO_REPOSITION,
-            lambda: self._mav.mav.command_long_send(
-                self._mav.target_system,
-                self._mav.target_component,
-                mavutil.mavlink.MAV_CMD_DO_REPOSITION,
-                0,              # confirmation
-                -1.0,           # param1: speed (-1 = keep current)
-                1.0,            # param2: bitmask (1 = use current speed)
-                0.0,            # param3: radius
-                yaw_deg,        # param4: yaw heading (NaN = don't change)
-                latitude_deg,   # param5: latitude (degrees)
-                longitude_deg,  # param6: longitude (degrees)
-                altitude_m,     # param7: altitude (m, relative to home)
-            ),
-            timeout=5.0,
+        # SET_POSITION_TARGET_GLOBAL_INT has no ACK; fire and return.
+        # type_mask 0xFF8 enables position (bits 0-2 clear) and ignores
+        # velocity, acceleration, yaw, and yaw_rate (bits 3-11 set).
+        self._mav.mav.set_position_target_global_int_send(
+            0,                                                        # time_boot_ms (ignored)
+            self._mav.target_system,
+            self._mav.target_component,
+            mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+            0xFF8,                                                    # type_mask
+            int(latitude_deg * 1e7),                                  # lat_int (degE7)
+            int(longitude_deg * 1e7),                                 # lon_int (degE7)
+            float(altitude_m),                                        # alt (m above home)
+            0.0, 0.0, 0.0,                                            # vx, vy, vz (ignored)
+            0.0, 0.0, 0.0,                                            # afx, afy, afz (ignored)
+            0.0, 0.0,                                                 # yaw, yaw_rate (ignored)
         )
-        logger.info("goto_location accepted")
+        logger.info("goto_location sent")
 
     # ── Offboard (not supported on ArduCopter) ────────────────────────
 

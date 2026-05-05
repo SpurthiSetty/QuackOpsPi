@@ -39,11 +39,19 @@ class qpsHoverSearchController:
 
     Lifecycle:
         1. MissionController calls execute_marker_search(target_marker_id).
-        2. Camera is started; frame-detect loop begins.
+        2. Camera is started (if manage_camera_lifecycle=True); frame-detect
+           loop begins.
         3. Marker found  → camera stopped, returns MARKER_FOUND result.
         4. Timeout       → camera stopped, returns SEARCH_TIMEOUT result.
         5. Camera error  → returns CAMERA_FAILURE result immediately.
         6. abort()       → next iteration exits, returns ABORTED result.
+
+    When manage_camera_lifecycle=False, the caller is responsible for
+    camera start/stop. The controller becomes a pure frame consumer — it
+    reads frames from whatever the camera is already producing and never
+    calls camera.start() or camera.stop(). Use this when the camera is
+    owned by a recording stack (e.g. qpsStreamServer) that must keep
+    running through the landing phase.
     """
 
     def __init__(
@@ -52,11 +60,13 @@ class qpsHoverSearchController:
         marker_detector: qpsMarkerDetectorInterface,
         telemetry_monitor: qpsTelemetryMonitor,
         config: qpsConfig,
+        manage_camera_lifecycle: bool = True,
     ) -> None:
         self._camera = camera_manager
         self._detector = marker_detector
         self._telemetry = telemetry_monitor
         self._config = config
+        self._manage_camera_lifecycle = manage_camera_lifecycle
 
         self._abort_requested: bool = False
         self._searching: bool = False
@@ -87,23 +97,27 @@ class qpsHoverSearchController:
             self._config.search_timeout_s,
         )
 
-        # Start camera
-        try:
-            await self._camera.start()
-        except Exception:
-            logger.exception("Camera failed to start")
-            self._searching = False
-            return qpsLandingResult(
-                outcome=qpsLandingOutcome.CAMERA_FAILURE,
-                search_duration_s=0.0,
-                frames_searched=0,
-                target_marker_id=target_marker_id,
-            )
+        # Start camera (only if this controller owns the lifecycle)
+        if self._manage_camera_lifecycle:
+            try:
+                await self._camera.start()
+            except Exception:
+                logger.exception("Camera failed to start")
+                self._searching = False
+                return qpsLandingResult(
+                    outcome=qpsLandingOutcome.CAMERA_FAILURE,
+                    search_duration_s=0.0,
+                    frames_searched=0,
+                    target_marker_id=target_marker_id,
+                )
 
         try:
             return await self._search_loop(target_marker_id, start_time, frames_searched)
         finally:
-            await self._safe_stop_camera()
+            if self._manage_camera_lifecycle:
+                await self._safe_stop_camera()
+            else:
+                cv2.destroyAllWindows()
             self._searching = False
 
     def abort(self) -> None:

@@ -1,46 +1,21 @@
 """
-outdoor_tests/test_hover_with_landing.py
+outdoor_tests/test_lateral_oneway_with_landing.py
 
-Hover-in-place flight test with ArUco marker-triggered landing.
+Lateral movement flight test: fly a one-way geometric pattern and land with
+ArUco marker detection at the final waypoint. Does NOT return to home.
 
-# ── Bench test recipe (no flight required) ───────────────────────────────────
-#
-# Purpose: verify that recording continues through the landing phase and that
-# the camera is started/stopped exactly once by the script, not the controller.
-#
-# Setup:
-#   1. Connect Pi to Pixhawk via serial (or point --config at a SITL config).
-#   2. Run with --no-marker-search to skip hardware marker detection:
-#
-#       python3 outdoor_tests/test_hover_with_landing.py \
-#           --alt 1 --search-timeout 5 --no-marker-search
-#
-# Expected log lines (grep for these):
-#   PASS — appears exactly once, before the search:
-#       "PiCamera2 started at 640x480 @ 30 fps"
-#
-#   PASS — must NOT appear (controller no longer calls start()):
-#       "PiCamera2 already running" or a second "PiCamera2 started" line
-#
-#   PASS — appears exactly once, AFTER "Landed" / "Disarmed":
-#       "PiCamera2 stopped"
-#
-# Verify the output video:
-#   - Open outdoor_tests/logs/<session>/video.mp4
-#   - Confirm recording extends past search-end (the timed hover period) and
-#     continues through fm.land() / disarm — touchdown should be visible.
-#   - Marker overlay bounding boxes should be visible whenever a marker is
-#     in frame during the search phase (stream server handles overlay drawing).
-#
-# ─────────────────────────────────────────────────────────────────────────────
-
-Identical to test_hover.py up through takeoff, then replaces the timed hover
-with a qpsHoverSearchController marker search. On MARKER_FOUND or
-SEARCH_TIMEOUT the drone proceeds to land at its current position.
+Difference from test_lateral_with_landing.py:
+  - Pattern does not include the return-to-home leg
+  - Marker search + landing happens at the last pattern waypoint
+  - On abort/interrupt: emergency land in place, no return home
 
 Usage:
-    python3 outdoor_tests/test_hover_with_landing.py --alt 1 --search-timeout 15
-    python3 outdoor_tests/test_hover_with_landing.py --alt 1 --no-marker-search
+    python3 outdoor_tests/test_lateral_oneway_with_landing.py \
+        --pattern square --size 3 --alt 2 --search-timeout 15
+
+    # Line: fly 5m north and land there
+    python3 outdoor_tests/test_lateral_oneway_with_landing.py \
+        --pattern line --size 5 --bearing 0 --alt 2
 """
 
 from __future__ import annotations
@@ -49,8 +24,10 @@ import argparse
 import asyncio
 import json
 import logging
+import math
 import sys
 from pathlib import Path
+from typing import List, Tuple
 
 # ── Repo-root on path ─────────────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -73,7 +50,9 @@ from test_common import (
     FailsafeWatcher,
     FailsafeLog,
     hover_with_logging,
+    wait_for_arrival,
     wait_gps_ready,
+    ned_to_latlon,
     make_log_dir,
     open_telemetry_csv,
     open_failsafe_log,
@@ -85,6 +64,9 @@ from test_common import (
 
 ALT_MIN_M: float = 0.5
 ALT_MAX_M: float = 10.0
+HOVER_MIN_S: float = 1.0
+HOVER_MAX_S: float = 30.0
+LEG_MAX_M: float = 30.0
 SEARCH_MIN_S: float = 5.0
 SEARCH_MAX_S: float = 60.0
 
@@ -95,7 +77,37 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     stream=sys.stdout,
 )
-log = logging.getLogger("qps.test_hover_with_landing")
+log = logging.getLogger("qps.test_lateral_oneway_with_landing")
+
+
+# ── Pattern generator (one-way — no return-to-home leg) ──────────────────────
+
+def build_oneway_pattern(
+    pattern: str, size: float, bearing_deg: float = 0.0
+) -> List[Tuple[float, float]]:
+    """Return NED (north_m, east_m) waypoints WITHOUT a return-to-home leg.
+
+    square   — three corners of a square (stops at the third corner)
+    line     — single point along bearing (stops there)
+    triangle — three vertices of an equilateral triangle (stops at the third)
+    """
+    if pattern == "square":
+        s = size
+        return [(s, 0.0), (s, s), (0.0, s)]
+
+    elif pattern == "line":
+        b = math.radians(bearing_deg)
+        return [(math.cos(b) * size, math.sin(b) * size)]
+
+    elif pattern == "triangle":
+        pts = []
+        for i in range(3):
+            angle = math.radians(90 + i * 120)
+            pts.append((math.cos(angle) * size, math.sin(angle) * size))
+        return pts
+
+    else:
+        raise ValueError(f"Unknown pattern: {pattern!r}")
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -103,15 +115,22 @@ log = logging.getLogger("qps.test_hover_with_landing")
 def parse_args() -> argparse.Namespace:
     here = Path(__file__).resolve().parent
     parser = argparse.ArgumentParser(
-        description="QuackOps hover + marker-search landing test"
+        description="QuackOps one-way lateral movement + marker-search landing test"
     )
-    parser.add_argument(
-        "--alt", type=float, default=3.0,
-        help=f"Takeoff altitude in metres [{ALT_MIN_M}, {ALT_MAX_M}] (default 3.0)",
-    )
+    parser.add_argument("--alt", type=float, default=3.0,
+                        help=f"Flight altitude in metres [{ALT_MIN_M}, {ALT_MAX_M}]")
+    parser.add_argument("--hover-at-each", type=float, default=3.0,
+                        help="Seconds to hover at each intermediate waypoint "
+                             "(not the final one — search happens there)")
+    parser.add_argument("--pattern", choices=["square", "line", "triangle"],
+                        default="line", help="Movement pattern (default: line)")
+    parser.add_argument("--size", type=float, default=3.0,
+                        help=f"Leg length in metres (capped at {LEG_MAX_M}m)")
+    parser.add_argument("--bearing", type=float, default=0.0,
+                        help="Bearing in degrees from north (line pattern only)")
     parser.add_argument(
         "--search-timeout", type=float, default=15.0,
-        help=f"Max seconds to search for marker before landing anyway "
+        help=f"Max seconds to search for marker at final waypoint "
              f"[{SEARCH_MIN_S}, {SEARCH_MAX_S}] (default 15.0)",
     )
     parser.add_argument(
@@ -121,19 +140,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--no-marker-search", action="store_true", default=False,
         help="Skip marker search and hover for --search-timeout seconds "
-             "before landing (fallback path matching old test_hover behavior)",
+             "at the final waypoint before landing",
     )
-    parser.add_argument(
-        "--config", type=str,
-        default=str(here / "config" / "outdoor_production.json"),
-        help="Path to qpsConfig JSON file",
-    )
-    parser.add_argument(
-        "--log-dir", type=str, default=str(here / "logs"),
-        help="Base directory for log output",
-    )
+    parser.add_argument("--config", type=str,
+                        default=str(here / "config" / "outdoor_production.json"))
+    parser.add_argument("--log-dir", type=str, default=str(here / "logs"))
     args = parser.parse_args()
+
     args.alt = max(ALT_MIN_M, min(ALT_MAX_M, args.alt))
+    args.hover_at_each = max(HOVER_MIN_S, min(HOVER_MAX_S, args.hover_at_each))
+    args.size = max(0.5, min(LEG_MAX_M, args.size))
     args.search_timeout = max(SEARCH_MIN_S, min(SEARCH_MAX_S, args.search_timeout))
     return args
 
@@ -143,13 +159,13 @@ def parse_args() -> argparse.Namespace:
 async def main() -> int:
     args = parse_args()
 
-    log_dir = make_log_dir(args.log_dir, "hover_with_landing")
+    log_dir = make_log_dir(args.log_dir, f"lateral_oneway_with_landing_{args.pattern}")
     log.info("Log directory: %s", log_dir)
     log.info(
-        "Parameters: alt=%.1fm  search_timeout=%.1fs  marker_id=%s  no_search=%s",
-        args.alt, args.search_timeout,
-        args.marker_id if args.marker_id is not None else "from config",
-        args.no_marker_search,
+        "Parameters: alt=%.1fm  pattern=%s  size=%.1fm  bearing=%.0f°  "
+        "hover_at_each=%.1fs  search_timeout=%.1fs  no_search=%s",
+        args.alt, args.pattern, args.size, args.bearing,
+        args.hover_at_each, args.search_timeout, args.no_marker_search,
     )
 
     config = qpsConfig.from_file(args.config)
@@ -157,9 +173,11 @@ async def main() -> int:
     if args.marker_id is not None:
         config.target_marker_id = args.marker_id
     log.info("Connection: %s", config.connection_string)
+
+    pattern = build_oneway_pattern(args.pattern, args.size, args.bearing)
     log.info(
-        "Search: marker_id=%d  timeout=%.1fs",
-        config.target_marker_id, config.search_timeout_s,
+        "One-way pattern (%d waypoints, no return home): %s",
+        len(pattern), pattern,
     )
 
     fm = qpsFlightManager(config)
@@ -210,20 +228,17 @@ async def main() -> int:
             fs.watch_mode_transitions(), name="failsafe-watcher"
         )
 
-        # ── GPS preflight ────────────────────────────────────────────────────
         log.info("Waiting for GPS lock...")
         await wait_gps_ready(fm, tm, min_sats=10, max_hdop=1.4, log=log)
 
         home = tm.get_gps_position()
         if home is None:
             raise RuntimeError("No GPS position available after GPS ready check")
-        diag.set_home(home.latitude_deg, home.longitude_deg)
-        log.info(
-            "Home: lat=%.7f  lon=%.7f  alt=%.1fm",
-            home.latitude_deg, home.longitude_deg, home.altitude_m,
-        )
+        home_lat = home.latitude_deg
+        home_lon = home.longitude_deg
+        diag.set_home(home_lat, home_lon)
+        log.info("Home: lat=%.7f  lon=%.7f", home_lat, home_lon)
 
-        # ── Pre-flight battery check ─────────────────────────────────────────
         state = tm.get_drone_state()
         batt_v = state.battery_voltage if state else 0.0
         batt_pct = state.battery_percent if state else 0.0
@@ -233,7 +248,6 @@ async def main() -> int:
                 f"Battery too low to fly: {batt_v:.2f}V (minimum 11.6V)"
             )
 
-        # ── Mode → GUIDED ────────────────────────────────────────────────────
         await fm.set_mode(fm.MODE_GUIDED)
         fs.set_expected_mode("GUIDED")
 
@@ -244,7 +258,6 @@ async def main() -> int:
             for m in fs.prearm_messages:
                 log.warning("  FC: %s", m)
 
-        # ── Arm + takeoff ────────────────────────────────────────────────────
         log.info("Arming...")
         await fm.arm()
         in_flight = True
@@ -253,19 +266,96 @@ async def main() -> int:
         await fm.takeoff(args.alt)
         log.info("Takeoff complete")
 
-        # ── Marker search (or timed hover fallback) ──────────────────────────
+        # ── Pattern loop (all waypoints except the last) ─────────────────────
+        intermediate_wps = pattern[:-1]
+        final_wp = pattern[-1]
+
+        aborted = False
+        for i, (north_m, east_m) in enumerate(intermediate_wps):
+            tgt_lat, tgt_lon = ned_to_latlon(home_lat, home_lon, north_m, east_m)
+            log.info(
+                "Waypoint %d/%d (intermediate): N=%.1fm E=%.1fm → %.7f, %.7f",
+                i + 1, len(pattern), north_m, east_m, tgt_lat, tgt_lon,
+            )
+
+            await fm.goto_location(tgt_lat, tgt_lon, args.alt)
+            try:
+                await wait_for_arrival(
+                    tm, tgt_lat, tgt_lon,
+                    tolerance_m=config.goto_arrival_tolerance_m,
+                    timeout_s=30.0,
+                    fs=fs,
+                    log=log,
+                )
+            except TimeoutError:
+                log.warning("Arrival timeout at WP%d — continuing", i + 1)
+            except RuntimeError as exc:
+                log.warning("Failsafe during transit to WP%d: %s", i + 1, exc)
+                fs_log.log("failsafe_in_transit", str(exc))
+                aborted = True
+                break
+
+            result = await hover_with_logging(
+                tm, diag, fs, args.hover_at_each, csv_writer, log,
+                poll_hz=config.telemetry_polling_rate_hz,
+            )
+            if result != "completed":
+                fs_log.log(result, f"during hover at WP{i+1}")
+                log.warning("Hover at WP%d cut short: %s", i + 1, result)
+                aborted = True
+                break
+
+        if aborted:
+            # Failsafe fired mid-pattern — land in place, no search
+            log.warning("Pattern aborted — landing in place")
+            await _land_and_disarm(fm, fs, log)
+            in_flight = False
+            return 1
+
+        # ── Fly to final waypoint ────────────────────────────────────────────
+        final_lat, final_lon = ned_to_latlon(
+            home_lat, home_lon, final_wp[0], final_wp[1]
+        )
+        log.info(
+            "Final waypoint %d/%d: N=%.1fm E=%.1fm → %.7f, %.7f",
+            len(pattern), len(pattern),
+            final_wp[0], final_wp[1], final_lat, final_lon,
+        )
+        await fm.goto_location(final_lat, final_lon, args.alt)
+        try:
+            await wait_for_arrival(
+                tm, final_lat, final_lon,
+                tolerance_m=config.goto_arrival_tolerance_m,
+                timeout_s=30.0,
+                fs=fs,
+                log=log,
+            )
+            log.info("Arrived at final waypoint")
+        except TimeoutError:
+            log.warning("Arrival timeout at final waypoint — landing at current position")
+        except RuntimeError as exc:
+            log.warning("Failsafe at final waypoint: %s — landing now", exc)
+            fs_log.log("failsafe_at_final_wp", str(exc))
+            await _land_and_disarm(fm, fs, log)
+            in_flight = False
+            return 1
+
+        # ── Marker search or timed hover at final waypoint ────────────────────
         if args.no_marker_search:
-            log.info("Hovering for %.1fs (no marker search)...", args.search_timeout)
+            log.info(
+                "Hovering for %.1fs at final waypoint (no marker search)...",
+                args.search_timeout,
+            )
             hover_result = await hover_with_logging(
                 tm, diag, fs, args.search_timeout, csv_writer, log,
                 poll_hz=config.telemetry_polling_rate_hz,
             )
             if hover_result != "completed":
-                fs_log.log(hover_result, "early exit during hover")
-                log.warning("Hover ended early: %s", hover_result)
+                fs_log.log(hover_result, "early exit during final hover")
+                log.warning("Final hover ended early: %s", hover_result)
         else:
             log.info(
-                "Searching for marker ID=%d (timeout=%.1fs)...",
+                "Searching for marker ID=%d at final waypoint (timeout=%.1fs)...",
                 config.target_marker_id, config.search_timeout_s,
             )
             landing_result = await search_controller.execute_marker_search(
@@ -283,6 +373,11 @@ async def main() -> int:
                     "duration_s": landing_result.search_duration_s,
                     "frames_searched": landing_result.frames_searched,
                     "target_marker_id": landing_result.target_marker_id,
+                    "final_waypoint": {
+                        "lat": final_lat,
+                        "lon": final_lon,
+                        "alt": args.alt,
+                    },
                     "marker_gps": (
                         {
                             "lat": landing_result.marker_gps.latitude_deg,
@@ -304,26 +399,18 @@ async def main() -> int:
                     f"outcome={landing_result.outcome.name}",
                 )
 
-        # ── Land ─────────────────────────────────────────────────────────────
-        log.info("Landing...")
-        fs.set_expected_mode("LAND")
-        await fm.land()
-        log.info("Landed")
-
-        state = tm.get_drone_state()
-        if state is None or state.is_armed:
-            await fm.disarm()
+        # ── Land at final waypoint ────────────────────────────────────────────
+        await _land_and_disarm(fm, fs, log)
         in_flight = False
-        log.info("Disarmed")
 
     except (KeyboardInterrupt, asyncio.CancelledError):
-        log.warning("Interrupted — attempting emergency land/disarm")
+        log.warning("Interrupted — attempting emergency land in place")
         if in_flight:
             await _emergency_land(fm, fs, tm, log)
         return 1
 
     except Exception:
-        log.exception("Unexpected error during flight — attempting emergency land/disarm")
+        log.exception("Unexpected error — attempting emergency land in place")
         if in_flight:
             await _emergency_land(fm, fs, tm, log)
         return 1
@@ -365,6 +452,18 @@ async def main() -> int:
         print(f"\nLogs saved to: {log_dir}")
 
     return 0
+
+
+async def _land_and_disarm(
+    fm: qpsFlightManager,
+    fs: FailsafeWatcher,
+    log: logging.Logger,
+) -> None:
+    log.info("Landing...")
+    fs.set_expected_mode("LAND")
+    await fm.land()
+    await fm.disarm()
+    log.info("Landed and disarmed")
 
 
 async def _emergency_land(
